@@ -1,4 +1,5 @@
-#define GLFW_INCLUDE_GLCOREARB
+//#define GLFW_INCLUDE_GLCOREARB
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <stdio.h>
 #include <math.h>
@@ -7,33 +8,6 @@
 
 #define GL(line) do { line; assert(glGetError() == GL_NO_ERROR); } while(0)
 #define GLSL(str) (const char*)"#version 330\n" #str
-
-// Regular Shaders
-
-const char* vertShader = GLSL(
-  layout(location = 0) in vec3 position;
-  layout(location = 1) in vec2 vUV;
-  uniform mat4 P;
-  uniform mat4 V;
-  out vec2 fUV;
-
-  void main()
-  {
-    gl_Position = P * V * vec4(position, 1);
-    fUV = vUV;
-  }
-);
-
-const char* fragShader = GLSL(
-  in vec2 fUV;
-  out vec4 color;
-  uniform sampler2D tex;
-
-  void main()
-  {
-    color = texture(tex, fUV);
-  }
-);
 
 // Sky Shaders
 
@@ -124,49 +98,6 @@ const char* skyFragShader = GLSL(
   }
 );
 
-// Post-Processing Shaders
-
-const char *postVertShader = GLSL(
-  out vec2 UV;
-
-  const vec2 data[4] = vec2[](
-    vec2(-1.0,  1.0), vec2(-1.0, -1.0),
-    vec2( 1.0,  1.0), vec2( 1.0, -1.0));
-
-  void main()
-  {
-    gl_Position = vec4(data[gl_VertexID], 0.0, 1.0);
-    UV = gl_Position.xy * 0.5 + 0.5;
-  }
-);
-
-const char *postFragShader = GLSL(
-  in vec2 UV;
-  out vec4 color;
-  uniform sampler2D tex[2];
-
-  void main()
-  {
-    color = texture(tex[0], UV);
-    float depth = texture(tex[1], UV).r;
-
-    // Ambient Occlusion
-    vec2 r = 4.0 / textureSize(tex[0], 0);
-    float occlusion = 0.0;
-    for (int i = -2; i < 3; i++)
-    {
-      for (int j = -2; j < 3; j++)
-      {
-        occlusion += 1.0 / (1.0 + pow(10.0 * min(depth - texture(tex[1], UV + vec2(i, j) * r).r, 0.0), 2.0)) / 24.0;
-      }
-    }
-    color.rgb *= occlusion;
-
-    // Gamma Correction
-    color.rgb = pow(1.0 - exp(-1.3 * color.rgb), vec3(1.3));
-  }
-);
-
 // Constants
 
 float floorCoords[] = {
@@ -180,10 +111,14 @@ float floorCoords[] = {
 
 typedef struct { float x, y, z; } vector;
 typedef struct { float m[16]; } matrix;
-typedef struct __attribute__((packed)) { char magic[2]; unsigned int size, reserved, offset, hsize, width, height, colors, compression, image_size, h_res, v_res, palletes, colors2; } bmp_header;
+//typedef struct __attribute__((packed)) { char magic[2]; unsigned int size, reserved, offset, hsize, width, height, colors, compression, image_size, h_res, v_res, palletes, colors2; } bmp_header;
 
 typedef struct { float x, y, z, r, r2; double px, py; } gamestate;
-typedef struct { unsigned int vao, buffer, vertices, program, textures[256], fb; int depth_test, texcount, P, V, M, tex, time; } entity;
+typedef struct { unsigned int vao, buffer, vertices, program, 
+//textures[256], 
+fb; int depth_test, 
+//texcount, 
+P, V, M, tex, time; } entity;
 typedef struct { entity* entities; unsigned int entity_count; gamestate state; } scene;
 
 // Math Functions
@@ -226,8 +161,8 @@ matrix getViewMatrix(float x, float y, float z, float a, float p)
 
 // OpenGL Helpers
 
-void glAssert(unsigned int obj, GLenum statusType, void (*ivFun)(GLuint, GLenum, GLint*),
-  void (*infoLogFun)(GLuint, GLsizei, GLsizei*, GLchar*))
+void glAssert(unsigned int obj, GLenum statusType, void (APIENTRY *ivFun)(GLuint, GLenum, GLint*),
+  void (APIENTRY *infoLogFun)(GLuint, GLsizei, GLsizei*, GLchar*))
 {
   GLint statusCode = GL_FALSE;
   ivFun(obj, statusType, &statusCode);
@@ -239,10 +174,11 @@ void glAssert(unsigned int obj, GLenum statusType, void (*ivFun)(GLuint, GLenum,
   GLint length = 0;
   ivFun(obj, GL_INFO_LOG_LENGTH, &length);
 
-  char error_log[length];
+  char *error_log = calloc(length, 1);
   infoLogFun(obj, length, &length, &error_log[0]);
 
   fprintf(stderr, "%s\n", error_log);
+  free( error_log );
   exit(0);
 }
 
@@ -277,7 +213,7 @@ unsigned int makeProgram(const char* vertexShaderSource, const char* fragmentSha
   return program;
 }
 
-unsigned int loadTexture(char* filename)
+/*unsigned int loadTexture(char* filename)
 {
   unsigned int texture;
   glGenTextures(1, &texture);
@@ -298,7 +234,7 @@ unsigned int loadTexture(char* filename)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
   return texture;
-}
+}*/
 
 unsigned int blankTexture(int w, int h, int format)
 {
@@ -339,11 +275,14 @@ unsigned int makeBuffer(GLenum target, size_t size, void* data)
 
 // Entities
 
-entity makeEntity(scene *s, const char* vs, const char* fs, int texcount, char textures[][40],
+entity makeEntity(scene *s, const char* vs, const char* fs, 
+    //int texcount, char textures[][40],
   void* data, unsigned int vertices, unsigned int layouts, int is_framebuffer, int depth_test,
   int w, int h)
 {
-  entity e = { .vertices = vertices, .texcount = texcount, .depth_test = depth_test };
+  entity e = { .vertices = vertices, 
+      //.texcount = texcount, 
+      .depth_test = depth_test };
 
   // Create VAO
   glGenVertexArrays(1, &e.vao);
@@ -369,14 +308,14 @@ entity makeEntity(scene *s, const char* vs, const char* fs, int texcount, char t
   e.time = glGetUniformLocation(e.program, "time");
 
   // Load Textures
-  if (!is_framebuffer)
+/*  if (!is_framebuffer)
     for (int i = 0; i < texcount; i++)
       if (textures[i][0] > 0)
         e.textures[i] = loadTexture(textures[i]);
 
   // Create a framebuffer if applicable
   if (is_framebuffer)
-    e.fb = makeFramebuffer(&e.textures[0], &e.textures[1], w, h);
+    e.fb = makeFramebuffer(&e.textures[0], &e.textures[1], w, h);*/
 
   s->entities = realloc(s->entities, ++s->entity_count * sizeof(entity));
   memcpy(&s->entities[s->entity_count - 1], &e, sizeof(entity));
@@ -387,8 +326,8 @@ entity makeEntity(scene *s, const char* vs, const char* fs, int texcount, char t
 void renderEntity(entity e, matrix P, matrix V, float time)
 {
   glUseProgram(e.program);
-  for(int i = 0; i < (e.fb ? 2 : e.texcount); i++)
-    glActiveTexture(GL_TEXTURE0 + (unsigned int)i), glBindTexture(GL_TEXTURE_2D, e.textures[i]), glUniform1i(e.tex + i, i);
+/*  for(int i = 0; i < (e.fb ? 2 : e.texcount); i++)
+    glActiveTexture(GL_TEXTURE0 + (unsigned int)i), glBindTexture(GL_TEXTURE_2D, e.textures[i]), glUniform1i(e.tex + i, i);*/
   glUniformMatrix4fv(e.P, 1, GL_FALSE, P.m);
   glUniformMatrix4fv(e.V, 1, GL_FALSE, V.m);
   glUniform1f(e.time, time);
@@ -407,7 +346,7 @@ void renderEntity(entity e, matrix P, matrix V, float time)
 void deleteEntity(entity e)
 {
   glDeleteProgram(e.program);
-  glDeleteTextures(e.texcount, e.textures);
+  //glDeleteTextures(e.texcount, e.textures);
   glDeleteBuffers(1, &e.buffer);
   glDeleteFramebuffers(1, &e.fb);
   glDeleteVertexArrays(1, &e.vao);
@@ -447,11 +386,14 @@ int main()
   glfwInit();
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE );
+  glfwWindowHint( GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE );
+  glfwWindowHint( GLFW_MAXIMIZED, GLFW_TRUE );
   GLFWwindow* window = glfwCreateWindow(800, 600, "Test", NULL, NULL);
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwMakeContextCurrent(window);
+
+  gladLoadGL();
 
   glEnable(GL_DEPTH_TEST);
   glDepthFunc(GL_LESS);
@@ -459,8 +401,8 @@ int main()
   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
   scene s = makeScene();
-  makeEntity(&s, skyVertShader, skyFragShader, 0, NULL, NULL, 4, 0, 0, 0, 0, 0);
-  makeEntity(&s, postVertShader, postFragShader, 0, NULL, NULL, 4, 0, 1, 0, 800, 600);
+  makeEntity(&s, skyVertShader, skyFragShader, //0, NULL, 
+      NULL, 4, 0, 0, 0, 0, 0);
 
   glfwGetCursorPos(window, &s.state.px, &s.state.py);
   while(!glfwWindowShouldClose(window))
@@ -468,10 +410,13 @@ int main()
     // Move Cursor
     double mx, my;
     glfwGetCursorPos(window, &mx, &my);
-    s.state.r -= (mx - s.state.px) * 0.01f;
-    s.state.r2 -= (my - s.state.py) * 0.01f;
+    s.state.r -= (mx - s.state.px) * 3e-3f;
+    s.state.r2 -= -(my - s.state.py) * 3e-3f;
     s.state.px = (float)mx;
     s.state.py = (float)my;
+
+    if ( glfwGetKey( window, GLFW_KEY_ESCAPE ) )
+        glfwSetWindowShouldClose( window, 1 );
 
     // Clear Framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, s.entities[1].fb);
