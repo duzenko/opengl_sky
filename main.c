@@ -7,33 +7,30 @@
 #include <string.h>
 
 #define GL(line) do { line; assert(glGetError() == GL_NO_ERROR); } while(0)
-#define GLSL(str) (const char*)"#version 140\n" #str
+#define GLSL(str) (const char*)"#version 120\n" #str
 
 // Sky Shaders
 
 const char* skyVertShader = GLSL(
-  out vec3 pos;
-  out vec3 fsun;
+  varying vec3 var_pos;
+  varying vec3 fsun;
   uniform mat4 P;
-  uniform mat4 V;
+  uniform mat4 RX;
+  uniform mat4 RY;
   uniform float time = 0.0;
-
-  const vec2 data[4] = vec2[](
-    vec2(-1.0,  1.0), vec2(-1.0, -1.0),
-    vec2( 1.0,  1.0), vec2( 1.0, -1.0));
 
   void main()
   {
-    gl_Position = vec4(data[gl_VertexID], 0.0, 1.0);
-    pos = transpose(mat3(V)) * (inverse(P) * gl_Position).xyz;
-    fsun = vec3(0.0, sin(time * 0.01), cos(time * 0.01));
+    gl_Position = gl_Vertex;
+    var_pos = (RY * RX * P * gl_Position).xyz;
+    fsun = vec3(0.0, sin(time * 0.01), -cos(time * 0.01));
   }
 );
 
 const char* skyFragShader = GLSL(
-  in vec3 pos;
-  in vec3 fsun;
-  out vec4 color;
+  varying vec3 var_pos;
+  varying vec3 fsun;
+
   uniform float time = 0.0;
   uniform float cirrus = 0.4;
   uniform float cumulus = 0.8;
@@ -74,8 +71,12 @@ const char* skyFragShader = GLSL(
 
   void main()
   {
+      vec3 pos = normalize( var_pos );
+      vec4 color;
     if (pos.y < 0)
       discard;
+
+    pos = normalize( pos );
 
     // Atmosphere Scattering
     float mu = dot(normalize(pos), normalize(fsun));
@@ -95,17 +96,9 @@ const char* skyFragShader = GLSL(
 
     // Dithering Noise
     color.rgb += noise(pos * 1000) * 0.01;
+    gl_FragColor = color;
   }
 );
-
-// Constants
-
-float floorCoords[] = {
-   30.0f, -1.0f, -30.0f, 5.0f, 0.0f, 0.0f,
-  -30.0f, -1.0f, -30.0f, 0.0f, 0.0f, 0.0f,
-   30.0f, -1.0f,  30.0f, 5.0f, 5.0f, 0.0f,
-  -30.0f, -1.0f,  30.0f, 0.0f, 5.0f, 0.0f,
-};
 
 // Structures
 
@@ -114,8 +107,8 @@ typedef struct { float m[16]; } matrix;
 
 typedef struct { float x, y, z, r, r2; double px, py; } gamestate;
 typedef struct { 
-    unsigned int vao, vertices, program; 
-    int P, V, M, tex, time; 
+    unsigned int program; 
+    int P, RX, RY, M, tex, time; 
 } entity;
 typedef struct { entity* entities; unsigned int entity_count; gamestate state; } scene;
 
@@ -123,38 +116,53 @@ typedef struct { entity* entities; unsigned int entity_count; gamestate state; }
 
 matrix getProjectionMatrix(int w, int h)
 {
-  float fov = 65.0f;
+  float fov_y = 1;
+  float tanFov = tan( fov_y * 0.5 );
   float aspect = (float)w / (float)h;
   float near = 1.0f;
   float far = 1000.0f;
 
   return (matrix) { .m = {
-    [0] = 1.0f / (aspect * tanf(fov * 3.14f / 180.0f / 2.0f)),
-    [5] = 1.0f / tanf(fov * 3.14f / 180.0f / 2.0f),
-    [10] = -(far + near) / (far - near),
+    [0] = 1.0f / (aspect * tanFov ),
+    [5] = 1.0f / tanFov,
+    [10] = -1.f,
     [11] = -1.0f,
-    [14] = -(2.0f * far * near) / (far - near)
+    [14] = -(2.0f * near)
   }};
 }
 
-matrix getViewMatrix(float x, float y, float z, float a, float p)
-{
-  float cosy = cosf(a), siny = sinf(a), cosp = cosf(p), sinp = sinf(p);
+matrix getRotationMatrix( int axis, float angle ) {
+    float c = cosf( angle ), s = sinf( angle );
 
-  return (matrix) { .m = {
-    [0] = cosy,
-    [1] = siny * sinp,
-    [2] = siny * cosp,
-    [5] = cosp,
-    [6] = -sinp,
-    [8] = -siny,
-    [9] = cosy * sinp,
-    [10] = cosp * cosy,
-    [12] = -(cosy * x - siny * z),
-    [13] = -(siny * sinp * x + cosp * y + cosy * sinp * z),
-    [14] = -(siny * cosp * x - sinp * y + cosp * cosy * z),
-    [15] = 1.0f,
-  }};
+    if ( axis == 0 )
+        return ( matrix ) {
+        .m = {
+            [0] = 1,
+
+            [5] = c,
+            [6] = -s,
+
+            [9] = s,
+            [10] = c,
+
+            [15] = 1
+        }
+    };
+    //if ( axis == 1 )
+    return ( matrix ) {
+        .m = {
+            [0] = c,
+            [1] = 0,
+            [2] = s,
+
+            [5] = 1,
+
+            [8] = -s,
+            [10] = c,
+
+            [15] = 1
+        }
+    };
 }
 
 // OpenGL Helpers
@@ -213,19 +221,15 @@ unsigned int makeProgram(const char* vertexShaderSource, const char* fragmentSha
 
 // Entities
 
-entity makeEntity(scene *s, const char* vs, const char* fs, unsigned int vertices)
+entity makeEntity(scene *s, const char* vs, const char* fs)
 {
-  entity e = { .vertices = vertices, 
-  };
-
-  // Create VAO
-  glGenVertexArrays(1, &e.vao);
-  glBindVertexArray(e.vao);
+  entity e;
 
   // Load Program
   e.program = makeProgram(vs, fs);
   e.P = glGetUniformLocation(e.program, "P");
-  e.V = glGetUniformLocation(e.program, "V");
+  e.RX = glGetUniformLocation( e.program, "RX" );
+  e.RY = glGetUniformLocation(e.program, "RY");
   e.M = glGetUniformLocation(e.program, "M");
   e.tex = glGetUniformLocation(e.program, "tex");
   e.time = glGetUniformLocation(e.program, "time");
@@ -236,39 +240,42 @@ entity makeEntity(scene *s, const char* vs, const char* fs, unsigned int vertice
   return e;
 }
 
-void renderEntity(entity e, matrix P, matrix V, float time)
+void renderEntity(entity e, matrix P, matrix RX, matrix RY, float time)
 {
   glUseProgram(e.program);
   glUniformMatrix4fv(e.P, 1, GL_FALSE, P.m);
-  glUniformMatrix4fv(e.V, 1, GL_FALSE, V.m);
+  glUniformMatrix4fv( e.RX, 1, GL_FALSE, RX.m );
+  glUniformMatrix4fv(e.RY, 1, GL_FALSE, RY.m);
   glUniform1f(e.time, time);
 
-    glDisable(GL_DEPTH_TEST);
-  glBindVertexArray(e.vao);
-  glDrawArrays(GL_TRIANGLE_STRIP, 0, (int)e.vertices);
-    glEnable(GL_DEPTH_TEST);
+  glBegin( GL_TRIANGLE_STRIP );
+  glVertex2f( -1.0, 1.0 );
+  glVertex2f( -1.0, -1.0 );
+  glVertex2f( 1.0, 1.0 );
+  glVertex2f( 1.0, -1.0 );
+  glEnd();
 }
 
 void deleteEntity(entity e)
 {
   glDeleteProgram(e.program);
-  glDeleteVertexArrays(1, &e.vao);
 }
 
 // Scene
 
 scene makeScene()
 {
-  scene s = { .entity_count = 0, .entities = 0, .state = { .x = 0.0f, .y = 2.0f, .z = -3.0f, .r = 3.14f, .r2 = 0.0f } };
+  scene s = { .entity_count = 0, .entities = 0, .state = { .x = 0.0f, .y = 0, .z = 0, .r = 0, .r2 = 0.0f } };
   return s;
 }
 
 void renderScene(scene s, int w, int h)
 {
   matrix p = getProjectionMatrix(w, h);
-  matrix v = getViewMatrix(s.state.x, s.state.y, s.state.z, s.state.r, s.state.r2);
+  matrix rx = getRotationMatrix( 0, s.state.r2 );
+  matrix ry = getRotationMatrix(1, s.state.r);
   for (unsigned int i = 0; i < s.entity_count; i++)
-      renderEntity(s.entities[i], p, v, (float)glfwGetTime() * 0.2f - 0.0f);
+      renderEntity(s.entities[i], p, rx, ry, (float)glfwGetTime() * 1e0f - 0.0f);
 }
 
 void deleteScene(scene s)
@@ -283,10 +290,8 @@ void deleteScene(scene s)
 int main()
 {
   glfwInit();
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE );
-  //glfwWindowHint( GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE );
   glfwWindowHint( GLFW_MAXIMIZED, GLFW_TRUE );
   GLFWwindow* window = glfwCreateWindow(800, 600, "Test", NULL, NULL);
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -308,8 +313,8 @@ int main()
     // Move Cursor
     double mx, my;
     glfwGetCursorPos(window, &mx, &my);
-    s.state.r -= (float)(mx - s.state.px) * 3e-3f;
-    s.state.r2 -= -(float)(my - s.state.py) * 3e-3f;
+    s.state.r -= -(float)(mx - s.state.px) * 3e-3f;
+    s.state.r2 -= (float)(my - s.state.py) * 3e-3f;
     s.state.px = (float)mx;
     s.state.py = (float)my;
 
@@ -320,7 +325,9 @@ int main()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // Render the Scene
-    renderScene(s, 800, 600);
+    int w, h;
+    glfwGetWindowSize( window, &w, &h );
+    renderScene(s, w, h);
 
     // Swap
     glfwSwapBuffers(window);
