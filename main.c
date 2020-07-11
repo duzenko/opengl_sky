@@ -22,7 +22,7 @@ const char* skyVertShader = GLSL(
   void main()
   {
     gl_Position = gl_Vertex;
-    var_pos = (RY * RX * P * gl_Position).xyz;
+    var_pos = (RY * RX * vec4(gl_Position.xy, -1, 1)).xyz;
     fsun = vec3(0.0, sin(time * 0.01), -cos(time * 0.01));
   }
 );
@@ -73,6 +73,7 @@ const char* skyFragShader = GLSL(
   {
       vec3 pos = normalize( var_pos );
       vec4 color;
+      //gl_FragColor.xyz = abs( pos ); return;
     if (pos.y < 0)
       discard;
 
@@ -102,7 +103,6 @@ const char* skyFragShader = GLSL(
 
 // Structures
 
-typedef struct { float x, y, z; } vector;
 typedef struct { float m[16]; } matrix;
 
 typedef struct { float x, y, z, r, r2; double px, py; } gamestate;
@@ -313,8 +313,8 @@ int main()
     // Move Cursor
     double mx, my;
     glfwGetCursorPos(window, &mx, &my);
-    s.state.r -= -(float)(mx - s.state.px) * 3e-3f;
-    s.state.r2 -= (float)(my - s.state.py) * 3e-3f;
+    s.state.r -= -(float)(mx - s.state.px) * 2e-3f;
+    s.state.r2 -= (float)(my - s.state.py) * 2e-3f;
     s.state.px = (float)mx;
     s.state.py = (float)my;
 
