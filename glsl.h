@@ -64,8 +64,6 @@ float fbm( vec3 p ) {
     return f;
 }
 
-const float PI = 3.1415926535897932384626433832795;
-
 vec3 getColor() {
     if ( var_pos.y < 0 ) {
         return vec3( 0.3 );
@@ -73,53 +71,50 @@ vec3 getColor() {
 
     vec3 pos = normalize( var_pos );
 
-
-    if ( fract( asin( pos.y ) / PI * 12 ) < 0.01 ) {
-        return vec3( 0, 1, 0 );
-    }
-
-    if ( fract( abs( asin( pos.z ) ) / PI * 12 ) < 0.01 ) {
-        return vec3( 0, 0, 1 );
-    }
-
     vec3 color = vec3( 0, 0, 0 );
 
     // Atmosphere Scattering
-//    float mu = dot( normalize( pos ), normalize( fsun ) );
     float mu = dot( pos, fsun );
 
-    float rad1 = 0.9995;
-    if ( mu > rad1 ) {
-        color.r = 1;
-        //return vec3( 1 - dot( pos, fsun ) * gl_FragCoord );
-    }
+    vec3 extinction = mix( 
+        exp( 
+            -exp( 
+                -( 
+                    (
+                        pos.y + fsun.y * 4.0 ) 
+                        * ( exp( -pos.y * 16.0 ) + 0.1 ) 
+                        / 80.0 
+                    ) 
+                    / Br 
+                ) 
+            * ( exp( -pos.y * 16.0 ) + 0.1 ) * Kr / Br 
+        ) 
+        //* exp( -pos.y * exp( -pos.y * 8.0 ) * 4.0 )
+        //* exp( -pos.y * 2.0 ) * 4.0
+        ,
+        vec3( 1.0 - exp( fsun.y ) ) * 0.2, 
+        -fsun.y * 0.2 + 0.5 );
 
-    float rad2 = 0.995;
-    {
-        float y = max( fsun.y - 0.1, 0 );
-        float add = min(y * 2e1, 1) * min(( mu - rad2 )*1e3, 1);
-        color += vec3(add);
-    }
-
-    //vec3 extinction = mix( exp( -exp( -( ( pos.y + fsun.y * 4.0 ) * ( exp( -pos.y * 16.0 ) + 0.1 ) / 80.0 ) / Br ) * ( exp( -pos.y * 16.0 ) + 0.1 ) * Kr / Br ) * exp( -pos.y * exp( -pos.y * 8.0 ) * 4.0 ) * exp( -pos.y * 2.0 ) * 4.0, vec3( 1.0 - exp( fsun.y ) ) * 0.2, -fsun.y * 0.2 + 0.5 );
-    float ext1 = 0.5 - pos.y;
-    ext1 = 1 - pos.y;
-    ext1 -= 3e0 * max( 0.4 - fsun.y, 0 ) * ( 1 - mu );
-    vec3 extinction = vec3( ext1 ) * 6e-1;
-
-    //color.rgb = 3.0 / ( 8.0 * 3.14 ) * ( 1.0 + mu * mu ) * ( Kr + Km * ( 1.0 - g * g ) / ( 2.0 + g * g ) / pow( 1.0 + g * g - 2.0 * g * mu, 1.5 ) ) / ( Br + Bm ) * extinction;
+    color.rgb = vec3(3.0) 
+        / ( 8.0 * 3.14 ) 
+        //* ( 1.0 + mu * mu ) 
+        * ( Kr + Km 
+            * ( 1.0 - g * g ) 
+            / ( 2.0 + g * g ) 
+            / pow( 1.0 + g * g - 2.0 * g * mu, 1.5 ) 
+            ) 
+        / ( Br + Bm ) 
+        * extinction
+        ;
     
-    //return extinction;
-    color += extinction;
-
     // Cirrus Clouds
     float density = smoothstep( 1.0 - cirrus, 1.0, fbm( pos.xyz / pos.y * 2.0 + time * 0.05 ) ) * 0.3;
-    //color.rgb = mix(color.rgb, extinction * 4.0, density * max(pos.y, 0.0));
+    color.rgb = mix(color.rgb, extinction * 4.0, density * max(pos.y, 0.0));
 
     // Cumulus Clouds
     for ( int i = 0; i < 3; i++ ) {
         float density = smoothstep( 1.0 - cumulus, 1.0, fbm( ( 0.7 + float( i ) * 0.01 ) * pos.xyz / pos.y + time * 0.3 ) );
-        //color.rgb = mix(color.rgb, extinction * density * 5.0, min(density, 1.0) * max(pos.y, 0.0));
+        color.rgb = mix(color.rgb, extinction * density * 5.0, min(density, 1.0) * max(pos.y, 0.0));
     }
 
     // Dithering Noise

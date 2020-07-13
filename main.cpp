@@ -1,4 +1,3 @@
-//#define GLFW_INCLUDE_GLCOREARB
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <stdio.h>
@@ -44,7 +43,7 @@ typedef struct {
     bool paused;
 } scene;
 
-char* title = "Loading...";
+std::string title = "Loading...";
 
 unsigned int makeShader( const char* code, GLenum shaderType ) {
     unsigned int shader = glCreateShader( shaderType );
@@ -124,8 +123,9 @@ void renderScene( scene s, int w, int h ) {
     matrix rx = getRotationMatrix( 0, s.state.r2 );
     matrix ry = getRotationMatrix( 1, s.state.r );
     static double lastTime = 0, time = -1e1f;
+    title = std::to_string( time );
     if ( !s.paused )
-        time += ( glfwGetTime() - lastTime ) * 3e0f;
+        time += ( glfwGetTime() - lastTime ) * 1e1f;
     lastTime = glfwGetTime();
     for ( unsigned int i = 0; i < s.entity_count; i++ )
         renderEntity( s.entities[i], p, rx, ry, (float)time, (float) w / h );
@@ -185,7 +185,7 @@ int main() {
         int w, h;
         glfwGetWindowSize( window, &w, &h );
         renderScene( s, w, h );
-        glfwSetWindowTitle( window, title );
+        glfwSetWindowTitle( window, title.c_str() );
 
         // Swap
         glfwSwapBuffers( window );
